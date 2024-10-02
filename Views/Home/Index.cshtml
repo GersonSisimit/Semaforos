@@ -1,0 +1,159 @@
+﻿@{
+    Layout = null;
+    ViewData["Title"] = "Control de Estacionamiento";
+}
+
+<!-- Materialize CSS CDN -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
+<div class="container mt-5">
+    <h2 class="center-align">Control de Estacionamiento</h2>
+
+    <div class="input-field">
+        <input type="number" id="vehicleId" class="validate" required />
+        <label for="vehicleId">ID del Vehículo</label>
+    </div>
+
+    <button class="btn green" onclick="enterVehicle()">
+        <i class="fas fa-car"></i> Ingresar
+    </button>
+    <button class="btn red" onclick="exitVehicle()">
+        <i class="fas fa-sign-out-alt"></i> Salir
+    </button>
+    <button class="btn orange" onclick="startSimulation()">
+        <i class="fas fa-play"></i> Iniciar Simulación
+    </button>
+
+    <div id="alert" class="card-panel mt-3" style="display: none;"></div>
+
+    <h3 class="mt-5">Estado del Estacionamiento:</h3>
+    <p id="capacity"></p>
+    <h4>Vehículos Actuales:</h4>
+    <ul id="vehiclesList" class="collection"></ul>
+</div>
+
+<!-- Materialize JS and jQuery CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+
+<script>
+    const vehicleIdsInUse = new Set(); // Para rastrear los IDs de vehículos en uso
+    let simulationInterval; // Para almacenar el intervalo de simulación
+
+    async function enterVehicle() {
+        const vehicleId = document.getElementById('vehicleId').value;
+        if (vehicleIdsInUse.has(vehicleId)) {
+            displayMessage(`El vehículo ID ${vehicleId} ya está en el estacionamiento.`, false);
+            return;
+        }
+        const response = await fetch('/api/parking/enter', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(vehicleId),
+        });
+        const result = await response.json();
+        if (response.ok) {
+            vehicleIdsInUse.add(vehicleId); // Agregar el ID al conjunto de vehículos en uso
+        }
+        displayMessage(result.message, response.ok);
+        updateStatus();
+    }
+
+    async function exitVehicle() {
+        const vehicleId = document.getElementById('vehicleId').value;
+        if (!vehicleIdsInUse.has(vehicleId)) {
+            displayMessage(`El vehículo ID ${vehicleId} no está en el estacionamiento.`, false);
+            return;
+        }
+        const response = await fetch('/api/parking/exit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(vehicleId),
+        });
+        const result = await response.json();
+        if (response.ok) {
+            vehicleIdsInUse.delete(vehicleId); // Eliminar el ID del conjunto de vehículos en uso
+        }
+        displayMessage(result.message, response.ok);
+        updateStatus();
+    }
+
+    function startSimulation() {
+        // Detener cualquier simulación en curso
+        clearInterval(simulationInterval);
+        // Iniciar una nueva simulación
+        simulationInterval = setInterval(simulateVehicles, 2000); // Cada 2 segundos
+    }
+
+    async function simulateVehicles() {
+        const randomVehicleId = Math.floor(Math.random() * 20) + 1; // Generar un ID aleatorio del 1 al 20
+
+        // Simular ingreso
+        let enterResponse = await fetch('/api/parking/enter', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(randomVehicleId),
+        });
+
+        let enterResult = await enterResponse.json();
+        if (enterResponse.ok) {
+            vehicleIdsInUse.add(randomVehicleId); // Agregar el ID al conjunto de vehículos en uso
+        }
+        displayMessage(enterResult.message, enterResponse.ok);
+        updateStatus();
+
+        // Intentar sacar un vehículo aleatorio si hay vehículos en el estacionamiento
+        if (vehicleIdsInUse.size > 0) {
+            const vehicleToExit = Array.from(vehicleIdsInUse)[Math.floor(Math.random() * vehicleIdsInUse.size)]; // Seleccionar un vehículo al azar
+            let exitResponse = await fetch('/api/parking/exit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(vehicleToExit),
+            });
+
+            let exitResult = await exitResponse.json();
+            if (exitResponse.ok) {
+                vehicleIdsInUse.delete(vehicleToExit); // Eliminar el ID del conjunto de vehículos en uso
+            }
+            displayMessage(exitResult.message, exitResponse.ok);
+        }
+    }
+
+    function displayMessage(message, isSuccess) {
+        const alert = document.getElementById('alert');
+        alert.style.display = 'block';
+        alert.className = isSuccess ? 'card-panel green lighten-3' : 'card-panel red lighten-3';
+        alert.innerHTML = message;
+        setTimeout(() => {
+            alert.style.display = 'none';
+        }, 3000);
+    }
+
+    async function updateStatus() {
+        const statusResponse = await fetch('/api/parking/status');
+        const statusResult = await statusResponse.json();
+        document.getElementById('capacity').innerText = `Total de Vehículos: ${statusResult.totalVehicles} / Capacidad: ${statusResult.capacity}`;
+
+        const vehiclesList = document.getElementById('vehiclesList');
+        vehiclesList.innerHTML = ''; // Limpiar la lista
+        const vehicles = await fetch('/api/parking/vehicles');
+        const vehicleIds = await vehicles.json();
+        vehicleIds.forEach(id => {
+            const listItem = document.createElement('li');
+            listItem.textContent = `Vehículo ID: ${id}`;
+            vehiclesList.appendChild(listItem);
+        });
+    }
+
+    // Llama a la función al cargar la página para mostrar el estado inicial
+    updateStatus();
+</script>
